@@ -42,6 +42,7 @@ if not st.session_state.nickname:
     if name:
         st.session_state.nickname = name
         st.experimental_rerun()
+        st.stop()
     st.stop()
 
 quiz_date = st.date_input("Quiz date", datetime.date.today())
