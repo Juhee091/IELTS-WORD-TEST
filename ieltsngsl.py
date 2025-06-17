@@ -134,7 +134,7 @@ if not st.session_state.submitted and st.button("✅ Submit All"):
         rank_df = pd.DataFrame(columns=entry.keys())
     rank_df = pd.concat([rank_df, pd.DataFrame([entry])], ignore_index=True)
     rank_df.to_csv(RANK_FILE, index=False)
-    st.experimental_rerun()
+    st.rerun()
 
 # ──────────────────────────────────────────────────────────────
 # 8. 결과 & 오답 & 재시험
