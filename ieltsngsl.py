@@ -3,74 +3,67 @@ import pandas as pd
 import random
 import datetime
 
-# Load vocabulary CSV
+# Load vocabulary CSV (같은 디렉토리에 IELTS_vocab_extracted.csv 있어야 함)
 df = pd.read_csv("IELTS_vocab_extracted.csv")
-df.dropna(inplace=True)
 
-# State initialization
-if "nickname" not in st.session_state:
-    st.session_state.nickname = ""
-if "score" not in st.session_state:
-    st.session_state.score = 0
-if "completed" not in st.session_state:
-    st.session_state.completed = []
+# 앱 제목
+st.title("📘 IELTS Vocabulary Daily Quiz")
+st.markdown("Practice 50 words a day from NGSL-based IELTS vocabulary!")
 
-# Get today's quiz seed (ensures repeatable questions per day)
-today = datetime.date.today().isoformat()
-random.seed(today + st.session_state.nickname)
+# 사용자 닉네임 입력
+nickname = st.text_input("Enter your nickname:")
 
-# UI: Nickname input
-if not st.session_state.nickname:
-    st.title("IELTS Vocabulary Quiz")
-    nickname = st.text_input("Enter your nickname to begin:")
-    if nickname:
-        st.session_state.nickname = nickname
-        st.experimental_rerun()
-else:
-    st.title(f"Welcome, {st.session_state.nickname}! ✨")
-    st.write(f"📅 Today's quiz - {today}")
+# 퀴즈 날짜 선택
+quiz_date = st.date_input("Select a date for your quiz", datetime.date.today())
 
-    # Prepare quiz questions
-    quiz_pool = df.sample(frac=1, random_state=random.randint(1, 9999)).reset_index(drop=True)
-    questions = quiz_pool.head(50)
+# 날짜 기반 시드로 문제 셔플
+random.seed(str(quiz_date))
 
-    score = 0
-    for idx, row in questions.iterrows():
-        direction = random.choice(["en2ko", "ko2en"])
-        options = [row['Word'] if direction == "ko2en" else row['Meaning']]
-        while len(options) < 4:
-            sample = df.sample(1).iloc[0]
-            opt = sample['Word'] if direction == "ko2en" else sample['Meaning']
-            if opt not in options:
-                options.append(opt)
-        random.shuffle(options)
+# 50개 랜덤 단어 추출
+quiz_words = df.sample(n=50, random_state=random.randint(0, 100000))
 
-        # Ask question
-        st.subheader(f"Q{idx+1}")
-        question = row['Meaning'] if direction == "en2ko" else row['Word']
-        answer = row['Word'] if direction == "ko2en" else row['Meaning']
-        user_answer = st.radio(f"What is the meaning of: **{question}**", options, key=f"q_{idx}")
+# 점수 초기화
+score = 0
 
-        if user_answer == answer:
-            score += 1
-
-    # Show score
+# 퀴즈 시작 조건: 닉네임이 입력된 경우
+if nickname:
+    st.write(f"👤 Nickname: **{nickname}**")
     st.write("---")
-    st.success(f"✅ You got {score} out of 50 correct!")
-    st.balloons()
 
-    # Save user record
-    if today not in st.session_state.completed:
-        st.session_state.completed.append(today)
-        st.session_state.score = score
-        with open("quiz_log.csv", "a", encoding="utf-8") as f:
-            f.write(f"{today},{st.session_state.nickname},{score}\n")
+    for idx, row in quiz_words.iterrows():
+        # 의미 → 단어 또는 단어 → 의미 문제 랜덤 생성
+        if random.random() < 0.5:
+            # 의미 → 단어
+            question = row['Meaning']
+            answer = row['Word']
+            choices = df['Word'].sample(4).tolist() + [answer]
+            random.shuffle(choices)
+            user_choice = st.radio(
+                f"📌 Q{idx+1}: What is the English word for '{question}'?",
+                choices,
+                key=f"q{idx}"
+            )
+            if user_choice == answer:
+                score += 1
+        else:
+            # 단어 → 의미
+            question = row['Word']
+            answer = row['Meaning']
+            choices = df['Meaning'].sample(4).tolist() + [answer]
+            random.shuffle(choices)
+            user_choice = st.radio(
+                f"📌 Q{idx+1}: What is the meaning of '{question}'?",
+                choices,
+                key=f"q{idx}"
+            )
+            if user_choice == answer:
+                score += 1
 
-    # Show leaderboard
-    st.write("## 📊 Leaderboard (Today)")
-    try:
-        logs = pd.read_csv("quiz_log.csv", names=["Date", "Name", "Score"])
-        today_logs = logs[logs["Date"] == today].sort_values(by="Score", ascending=False)
-        st.dataframe(today_logs.reset_index(drop=True))
-    except Exception as e:
-        st.error(f"Could not load leaderboard: {e}")
+    st.write("---")
+    st.success(f"🎉 You got {score} out of 50 correct!")
+else:
+    st.warning("Please enter your nickname to begin the quiz.")
+
+# 퀴즈 리셋 버튼
+if st.button("🔄 Reload Quiz"):
+    st.experimental_rerun()
