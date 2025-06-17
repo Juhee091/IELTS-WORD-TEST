@@ -153,7 +153,9 @@ if st.session_state.submitted:
             st.session_state.answers      = {}
             st.session_state.submitted    = False
             st.session_state.incorrect    = []
-            st.experimental_rerun()
+            st.rerun()   
+            st.stop()     
+
 
 # ──────────────────────────────────────────────────────────────
 # 9. 랭킹판
