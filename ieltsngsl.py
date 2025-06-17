@@ -3,67 +3,124 @@ import pandas as pd
 import random
 import datetime
 
-# Load vocabulary CSV (같은 디렉토리에 IELTS_vocab_extracted.csv 있어야 함)
-df = pd.read_csv("IELTS_vocab_extracted.csv")
+# CSV 파일 경로
+csv_path = "ngsl_words.csv"
+df = pd.read_csv(csv_path)
+all_words = df.to_dict("records")
 
-# 앱 제목
-st.title("📘 IELTS Vocabulary Daily Quiz")
-st.markdown("Practice 50 words a day from NGSL-based IELTS vocabulary!")
+# 세션 상태 초기화
+if "nickname" not in st.session_state:
+    st.session_state.nickname = ""
+if "quiz" not in st.session_state:
+    st.session_state.quiz = []
+if "answers" not in st.session_state:
+    st.session_state.answers = {}
+if "submitted" not in st.session_state:
+    st.session_state.submitted = False
+if "score" not in st.session_state:
+    st.session_state.score = 0
+if "wrong_questions" not in st.session_state:
+    st.session_state.wrong_questions = []
+if "retry_mode" not in st.session_state:
+    st.session_state.retry_mode = False
 
-# 사용자 닉네임 입력
-nickname = st.text_input("Enter your nickname:")
+# 닉네임 입력
+if not st.session_state.nickname:
+    nickname = st.text_input("Enter your nickname to start:")
+    if nickname:
+        st.session_state.nickname = nickname
+        st.experimental_rerun()
+    st.stop()
 
-# 퀴즈 날짜 선택
-quiz_date = st.date_input("Select a date for your quiz", datetime.date.today())
+# 퀴즈 생성 함수
+def generate_quiz(data, num=50, exclude=[]):
+    sample = random.sample([w for w in data if w["Word"] not in exclude], num)
+    quiz_data = []
+    for item in sample:
+        correct = item["Meaning"]
+        others = random.sample([w["Meaning"] for w in data if w["Meaning"] != correct], 4)
+        options = random.sample(others + [correct], 4)
+        quiz_data.append({
+            "question": item["Word"],
+            "answer": correct,
+            "choices": options,
+            "type": "word_to_meaning"
+        })
+    return quiz_data
 
-# 날짜 기반 시드로 문제 셔플
-random.seed(str(quiz_date))
+# 퀴즈 초기화
+if not st.session_state.quiz and not st.session_state.retry_mode:
+    st.session_state.quiz = generate_quiz(all_words)
 
-# 50개 랜덤 단어 추출
-quiz_words = df.sample(n=50, random_state=random.randint(0, 100000))
+st.title("📝 IELTS Word Quiz")
+st.markdown(f"**👤 Nickname:** {st.session_state.nickname}")
 
-# 점수 초기화
-score = 0
+# 문제 출력
+for idx, item in enumerate(st.session_state.quiz):
+    st.markdown(f"**Q{idx+1}.** What does **{item['question']}** mean?")
+    st.session_state.answers[idx] = st.radio(
+        f"Q{idx+1}",
+        item["choices"],
+        index=None,
+        key=f"radio_{idx}"
+    )
 
-# 퀴즈 시작 조건: 닉네임이 입력된 경우
-if nickname:
-    st.write(f"👤 Nickname: **{nickname}**")
-    st.write("---")
-
-    for idx, row in quiz_words.iterrows():
-        # 의미 → 단어 또는 단어 → 의미 문제 랜덤 생성
-        if random.random() < 0.5:
-            # 의미 → 단어
-            question = row['Meaning']
-            answer = row['Word']
-            choices = df['Word'].sample(4).tolist() + [answer]
-            random.shuffle(choices)
-            user_choice = st.radio(
-                f"📌 Q{idx+1}: What is the English word for '{question}'?",
-                choices,
-                key=f"q{idx}"
-            )
-            if user_choice == answer:
+# 제출 버튼
+if not st.session_state.submitted:
+    if st.button("✅ Submit Answers"):
+        score = 0
+        wrong = []
+        for idx, item in enumerate(st.session_state.quiz):
+            selected = st.session_state.answers.get(idx)
+            if selected == item["answer"]:
                 score += 1
-        else:
-            # 단어 → 의미
-            question = row['Word']
-            answer = row['Meaning']
-            choices = df['Meaning'].sample(4).tolist() + [answer]
-            random.shuffle(choices)
-            user_choice = st.radio(
-                f"📌 Q{idx+1}: What is the meaning of '{question}'?",
-                choices,
-                key=f"q{idx}"
-            )
-            if user_choice == answer:
-                score += 1
+            else:
+                wrong.append(item)
+        st.session_state.score = score
+        st.session_state.wrong_questions = wrong
+        st.session_state.submitted = True
 
-    st.write("---")
-    st.success(f"🎉 You got {score} out of 50 correct!")
-else:
-    st.warning("Please enter your nickname to begin the quiz.")
+        # 기록 저장
+        result_row = {
+            "nickname": st.session_state.nickname,
+            "score": score,
+            "date": datetime.datetime.today().strftime("%Y-%m-%d")
+        }
+        try:
+            result_df = pd.read_csv("quiz_ranking.csv")
+        except FileNotFoundError:
+            result_df = pd.DataFrame(columns=["nickname", "score", "date"])
+        result_df = pd.concat([result_df, pd.DataFrame([result_row])], ignore_index=True)
+        result_df.to_csv("quiz_ranking.csv", index=False)
+        st.experimental_rerun()
 
-# 퀴즈 리셋 버튼
-if st.button("🔄 Reload Quiz"):
-    st.experimental_rerun()
+# 결과 출력
+if st.session_state.submitted:
+    st.subheader("🎉 Result")
+    st.markdown(f"**Score: {st.session_state.score} / {len(st.session_state.quiz)}**")
+
+    if st.session_state.wrong_questions:
+        st.subheader("❌ Incorrect Answers")
+        for item in st.session_state.wrong_questions:
+            st.markdown(f"- **{item['question']}** → {item['answer']}")
+
+        if st.button("🔁 Retry Wrong Questions"):
+            st.session_state.quiz = st.session_state.wrong_questions
+            st.session_state.answers = {}
+            st.session_state.submitted = False
+            st.session_state.retry_mode = True
+            st.experimental_rerun()
+
+    st.subheader("🏆 Ranking")
+    try:
+        ranking_df = pd.read_csv("quiz_ranking.csv")
+        st.dataframe(ranking_df.sort_values(by="score", ascending=False).reset_index(drop=True))
+    except FileNotFoundError:
+        st.warning("No rankings recorded yet.")
+
+    if st.button("🔄 New Quiz"):
+        st.session_state.quiz = []
+        st.session_state.answers = {}
+        st.session_state.submitted = False
+        st.session_state.retry_mode = False
+        st.experimental_rerun()
