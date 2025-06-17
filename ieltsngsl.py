@@ -177,4 +177,5 @@ else:
 if st.button("🔄 New Quiz"):
     for k in ["quiz_data", "answers", "submitted", "incorrect", "score", "retry_mode"]:
         st.session_state[k] = defaults[k]
-    st.experimental_rerun()
+    st.rerun()
+    st.stop()
