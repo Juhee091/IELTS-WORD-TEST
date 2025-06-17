@@ -1,125 +1,177 @@
-import streamlit as sts
+# ielts_quiz.py
+import streamlit as st
 import pandas as pd
-import random
-import datetime
+import random, datetime, os, json
 
-# CSV 파일 경로
-df = pd.read_csv("IELTS_vocab_extracted.csv")
-all_words = df.to_dict("records")
+# ──────────────────────────────────────────────────────────────
+# 1. 데이터 로드
+# ──────────────────────────────────────────────────────────────
+CSV_FILE  = "IELTS_vocab_extracted.csv"     # 단어·뜻 CSV
+RANK_FILE = "quiz_ranking.csv"              # 랭킹 CSV
 
-# 세션 상태 초기화
-if "nickname" not in st.session_state:
-    st.session_state.nickname = ""
-if "quiz" not in st.session_state:
-    st.session_state.quiz = []
-if "answers" not in st.session_state:
-    st.session_state.answers = {}
-if "submitted" not in st.session_state:
-    st.session_state.submitted = False
-if "score" not in st.session_state:
-    st.session_state.score = 0
-if "wrong_questions" not in st.session_state:
-    st.session_state.wrong_questions = []
-if "retry_mode" not in st.session_state:
-    st.session_state.retry_mode = False
+if not os.path.exists(CSV_FILE):
+    st.error(f"❌ '{CSV_FILE}' 파일이 앱과 같은 폴더에 있어야 합니다.")
+    st.stop()
 
-# 닉네임 입력
+df = pd.read_csv(CSV_FILE).dropna().drop_duplicates()
+records = df.to_dict("records")
+
+# ──────────────────────────────────────────────────────────────
+# 2. 세션 상태 초기화
+# ──────────────────────────────────────────────────────────────
+defaults = {
+    "nickname"     : "",
+    "quiz_data"    : [],
+    "answers"      : {},
+    "submitted"    : False,
+    "score"        : 0,
+    "incorrect"    : [],
+    "retry_mode"   : False,
+}
+for k, v in defaults.items():
+    if k not in st.session_state:
+        st.session_state[k] = v
+
+# ──────────────────────────────────────────────────────────────
+# 3. 닉네임 & 날짜 입력
+# ──────────────────────────────────────────────────────────────
+st.title("📘 IELTS Vocabulary Quiz")
+
 if not st.session_state.nickname:
-    nickname = st.text_input("Enter your nickname to start:")
-    if nickname:
-        st.session_state.nickname = nickname
+    name = st.text_input("Enter your nickname to start:")
+    if name:
+        st.session_state.nickname = name
         st.experimental_rerun()
     st.stop()
 
-# 퀴즈 생성 함수
-def generate_quiz(data, num=50, exclude=[]):
-    sample = random.sample([w for w in data if w["Word"] not in exclude], num)
-    quiz_data = []
+quiz_date = st.date_input("Quiz date", datetime.date.today())
+seed_key  = f"{st.session_state.nickname}-{quiz_date}"
+
+# ──────────────────────────────────────────────────────────────
+# 4. 퀴즈 생성 함수
+# ──────────────────────────────────────────────────────────────
+def make_quiz(source, n=50):
+    random.seed(seed_key if not st.session_state.retry_mode else None)
+    sample = random.sample(source, k=min(n, len(source)))
+    quiz = []
     for item in sample:
-        correct = item["Meaning"]
-        others = random.sample([w["Meaning"] for w in data if w["Meaning"] != correct], 4)
-        options = random.sample(others + [correct], 4)
-        quiz_data.append({
-            "question": item["Word"],
-            "answer": correct,
-            "choices": options,
-            "type": "word_to_meaning"
+        word, meaning = item["Word"], item["Meaning"]
+        # 방향 결정
+        if random.random() < 0.5:
+            prompt = meaning               # 뜻 → 단어
+            answer = word
+            pool   = [r["Word"] for r in records if r["Word"] != answer]
+        else:
+            prompt = word                  # 단어 → 뜻
+            answer = meaning
+            pool   = [r["Meaning"] for r in records if r["Meaning"] != answer]
+
+        # 보기 4개
+        choices = random.sample(pool, 3) + [answer]
+        random.shuffle(choices)
+
+        quiz.append({
+            "prompt" : prompt,
+            "answer" : answer,
+            "choices": choices,
+            "direction": "KR→EN" if prompt == meaning else "EN→KR"
         })
-    return quiz_data
+    return quiz
 
-# 퀴즈 초기화
-if not st.session_state.quiz and not st.session_state.retry_mode:
-    st.session_state.quiz = generate_quiz(all_words)
+# ──────────────────────────────────────────────────────────────
+# 5. 퀴즈 데이터 준비
+# ──────────────────────────────────────────────────────────────
+if not st.session_state.quiz_data:
+    st.session_state.quiz_data  = make_quiz(records, 50)
+    st.session_state.answers    = {}
+    st.session_state.submitted  = False
+    st.session_state.incorrect  = []
+    st.session_state.score      = 0
 
-st.title("📝 IELTS Word Quiz")
-st.markdown(f"**👤 Nickname:** {st.session_state.nickname}")
+st.markdown(f"👤 **{st.session_state.nickname}** | 🗓 **{quiz_date}**")
+st.divider()
 
-# 문제 출력
-for idx, item in enumerate(st.session_state.quiz):
-    st.markdown(f"**Q{idx+1}.** What does **{item['question']}** mean?")
+# ──────────────────────────────────────────────────────────────
+# 6. 문제 표시
+# ──────────────────────────────────────────────────────────────
+for idx, q in enumerate(st.session_state.quiz_data):
     st.session_state.answers[idx] = st.radio(
-        f"Q{idx+1}",
-        item["choices"],
-        index=None,
-        key=f"radio_{idx}"
+        f"**Q{idx+1}.** {q['prompt']}",
+        q["choices"],
+        key=f"q_{idx}",
+        index=q['choices'].index(st.session_state.answers.get(idx)) if q['answers'].get(idx) else 0
     )
 
-# 제출 버튼
-if not st.session_state.submitted:
-    if st.button("✅ Submit Answers"):
-        score = 0
-        wrong = []
-        for idx, item in enumerate(st.session_state.quiz):
-            selected = st.session_state.answers.get(idx)
-            if selected == item["answer"]:
-                score += 1
-            else:
-                wrong.append(item)
-        st.session_state.score = score
-        st.session_state.wrong_questions = wrong
-        st.session_state.submitted = True
+# ──────────────────────────────────────────────────────────────
+# 7. 제출 버튼
+# ──────────────────────────────────────────────────────────────
+if not st.session_state.submitted and st.button("✅ Submit All"):
+    score, wrong = 0, []
+    for idx, q in enumerate(st.session_state.quiz_data):
+        user = st.session_state.answers.get(idx)
+        correct = q["answer"]
+        if user == correct:
+            score += 1
+        else:
+            wrong.append({**q, "your": user})
+    # 상태 업데이트
+    st.session_state.score     = score
+    st.session_state.incorrect = wrong
+    st.session_state.submitted = True
 
-        # 기록 저장
-        result_row = {
-            "nickname": st.session_state.nickname,
-            "score": score,
-            "date": datetime.datetime.today().strftime("%Y-%m-%d")
-        }
-        try:
-            result_df = pd.read_csv("quiz_ranking.csv")
-        except FileNotFoundError:
-            result_df = pd.DataFrame(columns=["nickname", "score", "date"])
-        result_df = pd.concat([result_df, pd.DataFrame([result_row])], ignore_index=True)
-        result_df.to_csv("quiz_ranking.csv", index=False)
-        st.experimental_rerun()
+    # 랭킹 저장
+    entry = {
+        "nickname"      : st.session_state.nickname,
+        "date"          : str(quiz_date),
+        "score"         : score,
+        "wrong_count"   : len(wrong),
+        "total_q"       : len(st.session_state.quiz_data)
+    }
+    if os.path.exists(RANK_FILE):
+        rank_df = pd.read_csv(RANK_FILE)
+    else:
+        rank_df = pd.DataFrame(columns=entry.keys())
+    rank_df = pd.concat([rank_df, pd.DataFrame([entry])], ignore_index=True)
+    rank_df.to_csv(RANK_FILE, index=False)
+    st.experimental_rerun()
 
-# 결과 출력
+# ──────────────────────────────────────────────────────────────
+# 8. 결과 & 오답 & 재시험
+# ──────────────────────────────────────────────────────────────
 if st.session_state.submitted:
-    st.subheader("🎉 Result")
-    st.markdown(f"**Score: {st.session_state.score} / {len(st.session_state.quiz)}**")
-
-    if st.session_state.wrong_questions:
+    st.success(f"🎉 Score: **{st.session_state.score} / {len(st.session_state.quiz_data)}**")
+    if st.session_state.incorrect:
         st.subheader("❌ Incorrect Answers")
-        for item in st.session_state.wrong_questions:
-            st.markdown(f"- **{item['question']}** → {item['answer']}")
+        for w in st.session_state.incorrect:
+            st.write(f"- **{w['prompt']}**")
+            st.write(f"  Your answer: `{w['your']}` | Correct: ✅ `{w['answer']}`")
 
         if st.button("🔁 Retry Wrong Questions"):
-            st.session_state.quiz = st.session_state.wrong_questions
-            st.session_state.answers = {}
-            st.session_state.submitted = False
-            st.session_state.retry_mode = True
+            st.session_state.retry_mode   = True
+            st.session_state.quiz_data    = st.session_state.incorrect
+            st.session_state.answers      = {}
+            st.session_state.submitted    = False
+            st.session_state.incorrect    = []
             st.experimental_rerun()
 
-    st.subheader("🏆 Ranking")
-    try:
-        ranking_df = pd.read_csv("quiz_ranking.csv")
-        st.dataframe(ranking_df.sort_values(by="score", ascending=False).reset_index(drop=True))
-    except FileNotFoundError:
-        st.warning("No rankings recorded yet.")
+# ──────────────────────────────────────────────────────────────
+# 9. 랭킹판
+# ──────────────────────────────────────────────────────────────
+st.divider()
+st.subheader("🏆 Leaderboard (Top 20)")
 
-    if st.button("🔄 New Quiz"):
-        st.session_state.quiz = []
-        st.session_state.answers = {}
-        st.session_state.submitted = False
-        st.session_state.retry_mode = False
-        st.experimental_rerun()
+if os.path.exists(RANK_FILE):
+    rank = pd.read_csv(RANK_FILE)
+    rank = rank.sort_values(by=["score", "wrong_count"], ascending=[False, True]).head(20)
+    rank.index = range(1, len(rank)+1)
+    st.table(rank[["nickname", "score", "wrong_count", "date"]])
+else:
+    st.info("No rankings saved yet.")
+
+# ──────────────────────────────────────────────────────────────
+# 10. 새 퀴즈
+# ──────────────────────────────────────────────────────────────
+if st.button("🔄 New Quiz"):
+    for k in ["quiz_data", "answers", "submitted", "incorrect", "score", "retry_mode"]:
+        st.session_state[k] = defaults[k]
+    st.experimental_rerun()
