@@ -100,7 +100,7 @@ for idx, q in enumerate(st.session_state.quiz_data):
         f"**Q{idx+1}.** {q['prompt']}",
         q["choices"],
         key=f"q_{idx}",
-        index=q['choices'].index(st.session_state.answers.get(idx)) if q['answers'].get(idx) else 0
+       index = q['choices'].index(st.session_state.answers.get(idx)) if st.session_state.answers.get(idx) else 0
     )
 
 # ──────────────────────────────────────────────────────────────
