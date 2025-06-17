@@ -1,11 +1,10 @@
-import streamlit as st
+import streamlit as sts
 import pandas as pd
 import random
 import datetime
 
 # CSV 파일 경로
-csv_path = "ngsl_words.csv"
-df = pd.read_csv(csv_path)
+df = pd.read_csv("IELTS_vocab_extracted.csv")
 all_words = df.to_dict("records")
 
 # 세션 상태 초기화
