@@ -147,8 +147,8 @@ if st.session_state.submitted:
             st.session_state.answers      = {}
             st.session_state.submitted    = False
             st.session_state.incorrect    = []
-            # rebuild page without rerun
-            st.experimental_rerun  # placeholder removed
+            # Stop execution to restart flow with new state
+            st.stop()
 
 # ──────────────────────────────────────────────────────────────
 # 9. 랭킹판
@@ -167,7 +167,6 @@ else:
 # 10. 새 퀴즈
 # ──────────────────────────────────────────────────────────────
 if st.button("🔄 New Quiz"):
-    # reset state
     st.session_state.quiz_data = []
     st.session_state.answers   = {}
     st.session_state.submitted = False
